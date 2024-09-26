@@ -803,11 +803,11 @@ let
             # For a better error message, evaluate all readOnly definitions as
             # if they were the only definition.
             separateDefs = map (def: def // {
-              value = (mergeDefinitions loc opt.type [ def ]).mergedValue;
+              value = (mergeDefinitions opt loc opt.type [ def ]).mergedValue;
             }) defs';
           in throw "The option `${showOption loc}' is read-only, but it's set multiple times. Definition values:${showDefs separateDefs}"
         else
-          mergeDefinitions loc opt.type defs';
+          mergeDefinitions opt loc opt.type defs';
 
       # Apply the 'apply' function to the merged value. This allows options to
       # yield a value computed from the definitions
@@ -829,7 +829,7 @@ let
       };
 
   # Merge definitions of a value of a given type.
-  mergeDefinitions = loc: type: defs: rec {
+  mergeDefinitions = opt: loc: type: defs: rec {
     defsFinal' =
       let
         # Process mkMerge and mkIf properties.
@@ -856,8 +856,18 @@ let
     mergedValue =
       if isDefined then
         if all (def: type.check def.value) defsFinal then type.merge loc defsFinal
-        else let allInvalid = filter (def: ! type.check def.value) defsFinal;
-        in throw "A definition for option `${showOption loc}' is not of type `${type.description}'. Definition values:${showDefs allInvalid}"
+        else
+          let
+            invalidDefs = filter (def: !type.check def.value) defsFinal;
+            msg = "A definition for option `${showOption loc}' is not of type `${type.description}'. Definition values:${showDefs invalidDefs}";
+          in
+          # throw msg
+          # 
+          {
+            inherit opt;
+            defs = invalidDefs;
+            __error = msg;
+          }
       else
         # (nixos-option detects this specific error message and gives it special
         # handling.  If changed here, please change it there too.)
@@ -999,7 +1009,7 @@ let
           assert opt.type.name == "attrsOf" || opt.type.name == "lazyAttrsOf";
           mapAttrs
                 (k: v:
-                  let merging = mergeDefinitions (opt.loc ++ [k]) opt.type.nestedTypes.elemType v;
+                  let merging = mergeDefinitions opt (opt.loc ++ [k]) opt.type.nestedTypes.elemType v;
                   in {
                     value = merging.mergedValue;
                     inherit (merging.defsFinal') highestPrio;
